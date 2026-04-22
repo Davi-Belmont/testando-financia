@@ -1,62 +1,99 @@
 import yfinance as yf
 import pandas as pd
-import datetime
-import json
+import time
 import os
+from datetime import datetime
 
-pasta_data = 'data/historico'
-if not os.path.exists(pasta_data):
-    os.makedirs(pasta_data)
+# Configuração de caminhos (Funciona em Windows e Linux/Ubuntu)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+ARQUIVO_ENTRADA = os.path.join(DATA_DIR, 'minha_carteira.xlsx')
+ARQUIVO_SAIDA = os.path.join(DATA_DIR, 'dashboard_investimentos.xlsx')
 
-lista_acoes = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "TASA4.SA", "ABEV3.SA"]
+def inicializar_arquivos():
+    """Garante que a pasta e o arquivo de entrada existam antes de processar."""
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+        print(f"Pasta {DATA_DIR} criada.")
 
-try:
-    print("Consultando Yahoo Finance (Histórico)...")
+    if not os.path.exists(ARQUIVO_ENTRADA):
+        print(f"Planilha de entrada não encontrada. Criando modelo em: {ARQUIVO_ENTRADA}")
+        # Modelo padrão com colunas que o código espera
+        df_modelo = pd.DataFrame({
+            'Ticker': ['TASA4', 'PETR4', 'VALE3'],
+            'Preco Pago': [15.50, 32.10, 70.00],
+            'Qtd': [100, 50, 20],
+            'Corretora': ['Nubank', 'Inter', 'BTG']
+        })
+        df_modelo.to_excel(ARQUIVO_ENTRADA, index=False)
+        return False # Indica que o arquivo acabou de ser criado e está vazio/com exemplo
+    return True
+
+def processar_investimentos():
+    # 1. Tenta inicializar/verificar arquivos
+    if not inicializar_arquivos():
+        print("⚠️  Modelo criado. Por favor, edite a planilha 'minha_carteira.xlsx' com seus dados reais.")
+        return
+
+    # 2. LEITURA
+    try:
+        df = pd.read_excel(ARQUIVO_ENTRADA)
+    except Exception as e:
+        print(f"Erro ao ler a planilha: {e}")
+        return
+
+    # 3. PREPARAÇÃO DE TICKERS
+    # Adiciona .SA se o usuário esqueceu (padrão B3 no Yahoo Finance)
+    tickers_original = df['Ticker'].unique().tolist()
+    tickers_yf = [t + ".SA" if not t.endswith(".SA") else t for t in tickers_original]
+
+    # 4. BUSCA DE PREÇOS (INTRADAY)
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Consultando Yahoo Finance...")
+    dados_mercado = yf.download(tickers_yf, period="1d", interval="1m", progress=False)
+
+    if dados_mercado.empty:
+        print("Aviso: Não foi possível obter dados do mercado agora. O mercado pode estar fechado.")
+        return
+
+    # Mapeamento de preços
+    precos_atuais = {}
+    for t_yf in tickers_yf:
+        ticker_limpo = t_yf.replace(".SA", "")
+        try:
+            # Lógica para lidar com DataFrame simples ou MultiIndex (quando há múltiplos tickers)
+            if len(tickers_yf) > 1:
+                coluna_close = dados_mercado['Close'][t_yf]
+            else:
+                coluna_close = dados_mercado['Close']
+            
+            ultimo_preco = coluna_close.dropna().iloc[-1]
+            precos_atuais[ticker_limpo] = round(float(ultimo_preco), 2)
+        except Exception:
+            print(f"Não foi possível obter o preço de {t_yf}")
+            precos_atuais[ticker_limpo] = 0
+
+    # 5. CÁLCULOS NO DATAFRAME
+    df['Preço Atual'] = df['Ticker'].map(precos_atuais)
+    df['Total Pago'] = df['Preco Pago'] * df['Qtd']
+    df['Valor Atualizado'] = df['Preço Atual'] * df['Qtd']
+    df['Lucro/Prejuízo R$'] = df['Valor Atualizado'] - df['Total Pago']
     
-    # Baixamos o período de 1 ano (dados consolidados)
-    dados_hist = yf.download(lista_acoes, period="1y", interval="1d")
+    # Previne erro de divisão por zero na rentabilidade
+    df['Rentabilidade %'] = (df['Lucro/Prejuízo R$'] / df['Total Pago'].replace(0, 1)) * 100
+    df['Data Ultima Atualizacao'] = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
 
-    for ticker in lista_acoes:
-        print(f"Processando: {ticker}")
+    # 6. EXPORTAÇÃO
+    df.to_excel(ARQUIVO_SAIDA, index=False)
+    print(f"Dashboard atualizado com sucesso! (Salvo em: {ARQUIVO_SAIDA})")
+
+# LOOP DE EXECUÇÃO (15 EM 15 MINUTOS)
+if __name__ == "__main__":
+    print("Iniciando Motor de Monitoramento de Investimentos...")
+    while True:
+        try:
+            processar_investimentos()
+        except Exception as e:
+            print(f"Ocorreu um erro inesperado: {e}")
         
-        # 2. Extraímos o histórico do ticker
-        historico_acao = dados_hist.xs(ticker, axis=1, level=1).dropna()
-
-        # 3. Criamos a lista de registros
-        lista_registros = []
-        for data_pregao, linha in historico_acao.iterrows():
-            lista_registros.append({
-                "data": data_pregao.strftime('%Y-%m-%d'),
-                "preco": round(float(linha['Close']), 2),
-                "atualizado_em": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                "volume": int(linha['Volume'])
-            })
-
-        # 4. BUSCA O VALOR DE AGORA (Caso o dia de hoje não esteja no histórico ainda)
-        print(f"Verificando cotação de hoje para {ticker}...")
-        hoje = yf.download(ticker, period="1d", interval="1m").dropna()
-        
-        if not hoje.empty:
-            ultima_data_hoje = hoje.index[-1].strftime('%Y-%m-%d')
-            # Se a última data do histórico for diferente de hoje, nós adicionamos
-            if lista_registros[-1]["data"] != ultima_data_hoje:
-                ultima_linha_hoje = hoje.iloc[-1]
-                lista_registros.append({
-                    "data": ultima_data_hoje,
-                    "preco": round(float(ultima_linha_hoje['Close']), 2),
-                    "atualizado_em": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    "volume": int(ultima_linha_hoje['Volume']),
-                    "status": "intraday" # Marcador opcional para saber que é o preço de agora
-                })
-
-        # 5. Salvamos o arquivo individual
-        nome_limpo = ticker.replace(".SA", "")
-        caminho_arquivo = os.path.join(pasta_data, f'{nome_limpo}.json')
-        
-        with open(caminho_arquivo, 'w', encoding='utf-8') as f:
-            json.dump(lista_registros, f, indent=4, ensure_ascii=False)
-
-    print(f"\nSucesso! Arquivos gerados com histórico e valor atual em: {pasta_data}")
-
-except Exception as e:
-    print(f"Erro ao processar dados: {e}")
+        print("Próxima atualização em 15 minutos. Aguardando...")
+        time.sleep(900)
