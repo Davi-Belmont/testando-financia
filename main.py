@@ -95,5 +95,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Ocorreu um erro inesperado: {e}")
         
-        print("Próxima atualização em 15 minutos. Aguardando...")
-        time.sleep(900)
+        print("Próxima atualização em 1 minutos. Aguardando...")
+        time.sleep(60)
