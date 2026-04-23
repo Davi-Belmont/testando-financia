@@ -4,20 +4,20 @@ import time
 import os
 from datetime import datetime
 
-# Configuração de caminhos (Funciona em Windows e Linux/Ubuntu)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 ARQUIVO_ENTRADA = os.path.join(DATA_DIR, 'minha_carteira.xlsx')
 ARQUIVO_SAIDA = os.path.join(DATA_DIR, 'dashboard_investimentos.xlsx')
 
 def inicializar_arquivos():
-    """Garante que a pasta e o arquivo de entrada existam antes de processar."""
+    #Garante que a pasta e o arquivo de entrada existam antes de processar
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
         print(f"Pasta {DATA_DIR} criada.")
 
     if not os.path.exists(ARQUIVO_ENTRADA):
         print(f"Planilha de entrada não encontrada. Criando modelo em: {ARQUIVO_ENTRADA}")
+        
         # Modelo padrão com colunas que o código espera
         df_modelo = pd.DataFrame({
             'Ticker': ['TASA4', 'PETR4', 'VALE3'],
@@ -25,14 +25,18 @@ def inicializar_arquivos():
             'Qtd': [100, 50, 20],
             'Corretora': ['Nubank', 'Inter', 'BTG']
         })
+        
+
         df_modelo.to_excel(ARQUIVO_ENTRADA, index=False)
         return False # Indica que o arquivo acabou de ser criado e está vazio/com exemplo
+    
     return True
 
 def processar_investimentos():
+    
     # 1. Tenta inicializar/verificar arquivos
     if not inicializar_arquivos():
-        print("⚠️  Modelo criado. Por favor, edite a planilha 'minha_carteira.xlsx' com seus dados reais.")
+        print("⚠️ Modelo criado. Por favor, edite a planilha 'minha_carteira.xlsx' com seus dados reais.")
         return
 
     # 2. LEITURA
